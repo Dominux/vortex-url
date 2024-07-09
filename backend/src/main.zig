@@ -1,24 +1,55 @@
 const std = @import("std");
+const httpz = @import("httpz");
+
+const port_number = 5882;
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    var server = try httpz.Server().init(allocator, .{ .port = port_number });
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    // overwrite the default notFound handler
+    server.notFound(notFound);
 
-    try bw.flush(); // don't forget to flush!
+    // overwrite the default error handler
+    server.errorHandler(errorHandler);
+
+    var router = server.router();
+
+    // use get/post/put/head/patch/options/delete
+    // you can also use "all" to attach to all methods
+    router.get("/api/user/:id", getUser);
+
+    // logging that we are running
+    std.debug.print("\nServer running at http://localhost:{d}\n", .{port_number});
+
+    // start the server in the current thread, blocking.
+    try server.listen();
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+fn getUser(req: *httpz.Request, res: *httpz.Response) !void {
+    // status code 200 is implicit.
+
+    // The json helper will automatically set the res.content_type = httpz.ContentType.JSON;
+    // Here we're passing an inferred anonymous structure, but you can pass anytype
+    // (so long as it can be serialized using std.json.stringify)
+
+    try res.json(.{ .id = req.param("id").?, .name = "Teg" }, .{});
+}
+
+fn notFound(_: *httpz.Request, res: *httpz.Response) !void {
+    res.status = 404;
+
+    // you can set the body directly to a []u8, but note that the memory
+    // must be valid beyond your handler. Use the res.arena if you need to allocate
+    // memory for the body.
+    res.body = "Not Found";
+}
+
+// note that the error handler return `void` and not `!void`
+fn errorHandler(req: *httpz.Request, res: *httpz.Response, err: anyerror) void {
+    res.status = 500;
+    res.body = "Internal Server Error";
+    std.log.warn("httpz: unhandled exception for request: {s}\nErr: {}", .{ req.url.raw, err });
 }

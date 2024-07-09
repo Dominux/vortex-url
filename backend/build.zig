@@ -29,12 +29,15 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    const httpz_mod = b.dependency("httpz", .{ .target = target, .optimize = optimize }).module("httpz");
+
     const exe = b.addExecutable(.{
         .name = "backend",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+    exe.root_module.addImport("httpz", httpz_mod);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
